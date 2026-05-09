@@ -1,5 +1,6 @@
-from flask import Flask, jsonify, send_from_directory, request
+from flask import Flask, jsonify, send_from_directory, request, session
 from flask_cors import CORS
+from functools import wraps
 import yfinance as yf
 import csv
 import glob
@@ -16,6 +17,18 @@ os.makedirs(DATA_DIR, exist_ok=True)
 
 app = Flask(__name__, static_folder=basedir, static_url_path='')
 CORS(app)
+app.secret_key = "ib-tracker-secret-key-change-me"  # Cambia esto por algo seguro
+
+# Configuración de seguridad
+PASSCODE = "1234"  # <--- CAMBIA TU CONTRASEÑA AQUÍ
+
+def login_required(f):
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return jsonify({'error': 'No autorizado'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
 
 # Nombres legibles para los tickers conocidos
 TICKER_NAMES = {
@@ -306,12 +319,22 @@ def fetch_prices(tickers):
     return resultados
 
 
+@app.route("/api/login", methods=["POST"])
+def login():
+    data = request.get_json()
+    if data and data.get("password") == PASSCODE:
+        session['logged_in'] = True
+        return jsonify({'success': True})
+    return jsonify({'error': 'Contraseña incorrecta'}), 401
+
+
 @app.route("/")
 def index():
     return send_from_directory(basedir, "portafolio-dashboard.html")
 
 
 @app.route("/api/upload", methods=["POST"])
+@login_required
 def upload_csv():
     if 'file' not in request.files:
         return jsonify({'error': 'No se envió ningún archivo'}), 400
@@ -331,6 +354,7 @@ def upload_csv():
 
 
 @app.route("/api/portfolio")
+@login_required
 def portfolio():
     """Endpoint principal: parsea CSV, calcula holdings y dividendos, obtiene precios."""
     try:
@@ -370,7 +394,6 @@ def portfolio():
     })
 
 
-# Mantener endpoint legacy por compatibilidad
 @app.route("/precios")
 def precios():
     try:

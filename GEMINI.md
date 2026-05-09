@@ -16,6 +16,7 @@ La aplicación parsea dinámicamente archivos CSV de transacciones de IB, calcul
 ## 📂 Estructura del Proyecto
 
 - `app.py`: Servidor Flask principal. Maneja las rutas de la API, el parsing de múltiples CSVs, la obtención de precios y la subida de archivos.
+- `app-web.py`: Versión optimizada del servidor para despliegue online (ej: PythonAnywhere), con rutas ajustadas y proxy configurado.
 - `data/`: Directorio donde se almacenan todos los archivos CSV de transacciones (`U13493500*.csv`).
 - `portafolio-dashboard.html`: UI del dashboard (SPA) con pestañas para Posiciones, Comparativa vs S&P 500, Dividendos y Transacciones.
 - `dashboard.js`: Lógica del frontend (fetch de datos, renderizado de gráficos y gestión de subida de archivos).
@@ -36,12 +37,19 @@ pip install -r requirements.txt
    ```bash
    python app.py
    ```
+   *Alternativa rápida:* Haz doble clic en `iniciar-tracker.command`.
 2. **Automatización:** El servidor abrirá automáticamente el navegador en `http://localhost:8080`.
-3. **Acceso Remoto:** El servidor escucha en `0.0.0.0`, permitiendo el acceso desde otros dispositivos en la misma red Wi-Fi usando la IP local del equipo.
+3. **Acceso Remoto (Local):** El servidor escucha en `0.0.0.0`, permitiendo el acceso desde otros dispositivos en la misma red Wi-Fi usando la IP local del equipo.
 
 ### Gestión de Datos
 - **Subida:** Puedes subir nuevos archivos CSV directamente desde el dashboard usando el botón "Subir CSV". Los archivos se guardan en la carpeta `data/` con un timestamp.
 - **Procesamiento:** El sistema lee *todos* los CSVs en la carpeta `data/`, combinando las transacciones y eliminando duplicados automáticamente.
+
+### Acceso Remoto (Fuera de casa - TODO EN UNO)
+Para iniciar el tracker y habilitar el acceso remoto al mismo tiempo:
+1. Ejecuta `iniciar-tracker.command`.
+2. El terminal mostrará una dirección similar a `https://algo.serveo.net`. Esa es la URL que puedes abrir desde cualquier lugar.
+3. Al cerrar la ventana del terminal, tanto el servidor como el túnel se detendrán automáticamente.
 
 ---
 

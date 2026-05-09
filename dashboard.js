@@ -22,6 +22,12 @@ async function loadPortfolio() {
 
   try {
     const res = await fetch('/api/portfolio');
+    
+    if (res.status === 401) {
+      document.getElementById('login-overlay').style.display = 'flex';
+      return;
+    }
+    
     if (!res.ok) throw new Error('El servidor no respondió correctamente (HTTP '+res.status+')');
     const data = await res.json();
     if (data.error) throw new Error(data.error);
