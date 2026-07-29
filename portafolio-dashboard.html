@@ -88,6 +88,20 @@
   .error-box { background: var(--red-bg); border: 1px solid rgba(155,44,44,.2); border-radius: var(--radius-sm); padding: 14px 16px; font-size: 0.83rem; color: var(--red); margin-bottom: 1.25rem; display: none; line-height: 1.5; }
   .error-box code { font-family: 'DM Mono', monospace; font-size: 0.8rem; background: rgba(155,44,44,.1); padding: 2px 5px; border-radius: 3px; }
 
+  .range-btns { display: flex; gap: 4px; margin-bottom: 1rem; }
+  .range-btn { padding: 5px 12px; font-size: 0.75rem; font-family: 'DM Sans', sans-serif; border: 1px solid var(--border); background: var(--surface); color: var(--text2); border-radius: var(--radius-sm); cursor: pointer; transition: all .15s; }
+  .range-btn.active { background: var(--text); color: #fff; border-color: var(--text); }
+  .hist-status { font-size: 0.72rem; color: var(--text3); font-family: 'DM Mono', monospace; margin-bottom: 1rem; }
+
+  .trade-filters { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 1rem; }
+  .filter-group { display: flex; flex-direction: column; gap: 4px; }
+  .filter-group label { font-size: 0.67rem; font-weight: 500; text-transform: uppercase; letter-spacing: .07em; color: var(--text3); }
+  .filter-group select, .filter-group input[type="date"] { padding: 6px 10px; font-family: 'DM Sans', sans-serif; font-size: 0.8rem; background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); outline: none; transition: border-color .15s; }
+  .filter-group select:focus, .filter-group input[type="date"]:focus { border-color: var(--blue); }
+  .reset-filter-btn { padding: 6px 12px; font-family: 'DM Sans', sans-serif; font-size: 0.78rem; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text2); cursor: pointer; height: 33px; transition: all .15s; }
+  .reset-filter-btn:hover { background: var(--border); color: var(--text); }
+  .trade-summary-info { font-size: 0.73rem; color: var(--text3); font-family: 'DM Mono', monospace; margin-bottom: 0.75rem; }
+
   .footer { margin-top: 2rem; padding-top: 1rem; border-top: 1px solid var(--border); font-size: 0.71rem; color: var(--text3); display: flex; justify-content: space-between; flex-wrap: wrap; gap: 4px; }
 </style>
 </head>
@@ -147,6 +161,7 @@
     <button class="tab" onclick="showTab('vs')">vs S&P 500</button>
     <button class="tab" onclick="showTab('divs')">Dividendos</button>
     <button class="tab" onclick="showTab('trades')">Transacciones</button>
+    <button class="tab" onclick="showTab('history')">Histórico</button>
   </div>
 
   <!-- Posiciones -->
@@ -218,9 +233,71 @@
     </div>
   </div>
 
+  <!-- Histórico -->
+  <div id="tab-history" style="display:none;">
+    <div class="range-btns">
+      <button class="range-btn" data-range="1y" onclick="setHistoryRange('1y')">1A</button>
+      <button class="range-btn" data-range="3y" onclick="setHistoryRange('3y')">3A</button>
+      <button class="range-btn active" data-range="all" onclick="setHistoryRange('all')">Todo</button>
+    </div>
+    <div class="hist-status" id="hist-status"></div>
+
+    <div class="sec">Capital invertido y dividendos acumulados</div>
+    <div class="cw" style="height:240px;"><canvas id="histCashChart"></canvas></div>
+
+    <div class="sec">Aportes y dividendos por mes</div>
+    <div class="cw" style="height:200px;"><canvas id="histFlowChart"></canvas></div>
+
+    <div class="sec">Valor de mercado vs capital invertido</div>
+    <div class="cw" style="height:240px;"><canvas id="histValueChart"></canvas></div>
+
+    <div class="sec">Rentabilidad acumulada</div>
+    <div class="cw" style="height:220px;"><canvas id="histReturnChart"></canvas></div>
+
+    <div class="sec">Resumen mensual</div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Mes</th><th class="r">Capital invertido</th><th class="r">Dividendos acum.</th>
+          <th class="r">Valor mercado</th><th class="r">Rendimiento</th>
+        </tr></thead>
+        <tbody id="hist-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <!-- Transacciones -->
   <div id="tab-trades" style="display:none;">
     <div class="sec">Historial de Operaciones (Compras y Ventas)</div>
+    
+    <div class="trade-filters">
+      <div class="filter-group">
+        <label for="filter-type">Operación</label>
+        <select id="filter-type" onchange="applyTradeFilters()">
+          <option value="all">Todas</option>
+          <option value="Buy">Compra</option>
+          <option value="Sell">Venta</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="filter-symbol">Acción</label>
+        <select id="filter-symbol" onchange="applyTradeFilters()">
+          <option value="all">Todas</option>
+        </select>
+      </div>
+      <div class="filter-group">
+        <label for="filter-start-date">Desde</label>
+        <input type="date" id="filter-start-date" onchange="applyTradeFilters()">
+      </div>
+      <div class="filter-group">
+        <label for="filter-end-date">Hasta</label>
+        <input type="date" id="filter-end-date" onchange="applyTradeFilters()">
+      </div>
+      <button class="reset-filter-btn" onclick="resetTradeFilters()">Limpiar filtros</button>
+    </div>
+
+    <div class="trade-summary-info" id="trade-summary-info"></div>
+
     <div class="table-wrap">
       <table>
         <thead><tr>

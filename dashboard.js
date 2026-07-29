@@ -1,16 +1,160 @@
 const COLORS = ['#2c5f8a','#3a7d44','#c4622d','#b5456b','#6b4bbf','#1a7a62','#c47d0e','#3a6aa8','#5a8a32','#a83228','#4a3a8a'];
-let charts = {}, portfolioData = null;
+const TAB_IDS = ['holdings','vs','divs','trades','history'];
+let charts = {}, portfolioData = null, historyData = null, historyRange = 'all', historyLoading = false;
 
 const f = (n,d=2) => n.toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fu = n => '$'+f(Math.abs(n));
 const sg = n => n>=0?'+':'-';
 
+async function parseJsonResponse(res) {
+  if (res.status === 401) {
+    document.getElementById('login-overlay').style.display = 'flex';
+    throw new Error('Sesión expirada. Vuelve a iniciar sesión.');
+  }
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    const hint = res.status === 404
+      ? 'El servidor no tiene la ruta /api/upload (¿estás usando app.py?).'
+      : res.status === 413
+        ? 'El archivo es demasiado grande para esta conexión.'
+        : `Respuesta inesperada del servidor (HTTP ${res.status}).`;
+    throw new Error(hint);
+  }
+  return res.json();
+}
+
 function showTab(t) {
-  ['holdings','vs','divs','trades'].forEach(id => document.getElementById('tab-'+id).style.display = id===t?'':'none');
-  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active',['holdings','vs','divs','trades'][i]===t));
+  TAB_IDS.forEach(id => document.getElementById('tab-'+id).style.display = id===t?'':'none');
+  document.querySelectorAll('.tab').forEach((el,i) => el.classList.toggle('active', TAB_IDS[i]===t));
   if (t==='divs' && portfolioData) buildDivTab();
   if (t==='vs' && portfolioData) buildVsTab();
   if (t==='trades' && portfolioData) buildTradesTab();
+  if (t==='history' && portfolioData) loadHistoryTab();
+}
+
+function setHistoryRange(range) {
+  historyRange = range;
+  document.querySelectorAll('.range-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === range);
+  });
+  if (portfolioData) buildHistoryTab();
+}
+
+function filterHistorySeries(series) {
+  if (!series || historyRange === 'all') return series || [];
+  const months = historyRange === '1y' ? 12 : 36;
+  return series.slice(-months);
+}
+
+function filterBenchmark(benchmark, filteredSeries) {
+  if (!benchmark || !filteredSeries.length) return [];
+  const periods = new Set(filteredSeries.map(s => s.period));
+  return benchmark.filter(b => periods.has(b.period));
+}
+
+async function loadHistoryTab() {
+  buildHistoryTab();
+  if (historyData || historyLoading) return;
+  historyLoading = true;
+  const status = document.getElementById('hist-status');
+  status.innerHTML = '<span class="spinner"></span>Calculando valor de mercado histórico...';
+  try {
+    const res = await fetch('/api/history', { credentials: 'same-origin' });
+    const data = await parseJsonResponse(res);
+    if (!res.ok) throw new Error(data.error || 'Error al cargar histórico');
+    historyData = data;
+    if (data.cachedAt) {
+      status.textContent = 'Precios históricos actualizados: ' + data.cachedAt.replace('T', ' ');
+    }
+    buildHistoryTab();
+  } catch (e) {
+    status.textContent = 'No se pudo cargar valor de mercado histórico: ' + e.message;
+  }
+  historyLoading = false;
+}
+
+function buildHistoryTab() {
+  const cf = portfolioData?.cashflowHistory;
+  if (!cf || !cf.series?.length) {
+    document.getElementById('hist-status').textContent = 'Sin datos históricos disponibles.';
+    return;
+  }
+
+  const fullSeries = historyData?.series?.length ? historyData.series : cf.series;
+  const series = filterHistorySeries(fullSeries);
+  const benchmark = filterBenchmark(historyData?.benchmark, series);
+  const labels = series.map(s => s.period);
+
+  const chartOpts = (yCallback) => ({
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: true, labels: { color: '#6b6860', font: { size: 11 } } },
+      tooltip: { callbacks: { label: ctx => ` ${ctx.dataset.label}: ${yCallback(ctx.raw)}` } } },
+    scales: {
+      x: { ticks: { color: '#a09d97', font: { size: 10 }, maxRotation: 45 }, grid: { display: false } },
+      y: { ticks: { color: '#a09d97', font: { size: 11 }, callback: yCallback }, grid: { color: 'rgba(0,0,0,0.05)' } }
+    }
+  });
+
+  if (charts.histCash) charts.histCash.destroy();
+  charts.histCash = new Chart(document.getElementById('histCashChart'), {
+    type: 'line',
+    data: { labels, datasets: [
+      { label: 'Capital invertido', data: series.map(s => s.netInvested), borderColor: '#2c5f8a', backgroundColor: 'rgba(44,95,138,.08)', fill: true, tension: 0.3, pointRadius: 2 },
+      { label: 'Dividendos acumulados', data: series.map(s => s.cumulativeDividends), borderColor: '#3a7d44', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2 }
+    ]},
+    options: chartOpts(v => '$' + f(v))
+  });
+
+  if (charts.histFlow) charts.histFlow.destroy();
+  charts.histFlow = new Chart(document.getElementById('histFlowChart'), {
+    type: 'bar',
+    data: { labels, datasets: [
+      { label: 'Aportes netos', data: series.map(s => s.monthlyContributions), backgroundColor: 'rgba(44,95,138,.75)', borderRadius: 3 },
+      { label: 'Dividendos del mes', data: series.map(s => s.monthlyDividends), backgroundColor: 'rgba(58,125,68,.75)', borderRadius: 3 }
+    ]},
+    options: chartOpts(v => '$' + f(v))
+  });
+
+  const hasMarket = series.some(s => s.marketValue != null);
+  if (charts.histValue) charts.histValue.destroy();
+  if (hasMarket) {
+    charts.histValue = new Chart(document.getElementById('histValueChart'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Valor de mercado', data: series.map(s => s.marketValue), borderColor: '#1a1916', backgroundColor: 'rgba(26,25,22,.06)', fill: true, tension: 0.3, pointRadius: 2 },
+        { label: 'Capital invertido', data: series.map(s => s.netInvested), borderColor: '#2c5f8a', backgroundColor: 'transparent', borderDash: [4, 3], tension: 0.3, pointRadius: 0 }
+      ]},
+      options: chartOpts(v => '$' + f(v))
+    });
+  }
+
+  if (charts.histReturn) charts.histReturn.destroy();
+  if (hasMarket) {
+    const vooMap = Object.fromEntries(benchmark.map(b => [b.period, b.vooReturnPct]));
+    charts.histReturn = new Chart(document.getElementById('histReturnChart'), {
+      type: 'line',
+      data: { labels, datasets: [
+        { label: 'Tu portafolio', data: series.map(s => s.totalReturnPct), borderColor: '#3a7d44', backgroundColor: 'transparent', tension: 0.3, pointRadius: 2 },
+        { label: 'S&P 500 (VOO)', data: series.map(s => vooMap[s.period] ?? null), borderColor: '#c47d0e', backgroundColor: 'transparent', borderDash: [5, 4], tension: 0.3, pointRadius: 0 }
+      ]},
+      options: chartOpts(v => v == null ? '—' : f(v) + '%')
+    });
+  }
+
+  const tb = document.getElementById('hist-tbody');
+  tb.innerHTML = '';
+  [...series].reverse().forEach(s => {
+    const ret = s.totalReturnPct;
+    const retStr = ret == null ? '—' : `${sg(ret)}${f(Math.abs(ret))}%`;
+    const retColor = ret == null ? 'var(--text3)' : (ret >= 0 ? 'var(--green)' : 'var(--red)');
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${s.period}</td>
+      <td class="r">${fu(s.netInvested)}</td>
+      <td class="r" style="color:var(--green)">$${f(s.cumulativeDividends)}</td>
+      <td class="r">${s.marketValue != null ? fu(s.marketValue) : '—'}</td>
+      <td class="r" style="color:${retColor}">${retStr}</td>`;
+    tb.appendChild(tr);
+  });
 }
 
 async function loadPortfolio() {
@@ -21,18 +165,13 @@ async function loadPortfolio() {
   document.getElementById('m-total').innerHTML = '<span class="spinner"></span>';
 
   try {
-    const res = await fetch('/api/portfolio');
-    
-    if (res.status === 401) {
-      document.getElementById('login-overlay').style.display = 'flex';
-      return;
-    }
-    
-    if (!res.ok) throw new Error('El servidor no respondió correctamente (HTTP '+res.status+')');
-    const data = await res.json();
+    const res = await fetch('/api/portfolio', { credentials: 'same-origin' });
+    const data = await parseJsonResponse(res);
+    if (!res.ok) throw new Error(data.error || 'El servidor no respondió correctamente (HTTP '+res.status+')');
     if (data.error) throw new Error(data.error);
 
     portfolioData = data;
+    historyData = null;
     const prices = data.prices;
     const rows = data.holdings.map(h => ({...h, price: prices[h.ticker] ?? null})).filter(h => h.price);
     if (!rows.length) throw new Error('No se recibieron precios.');
@@ -44,6 +183,7 @@ async function loadPortfolio() {
     if (document.getElementById('tab-vs').style.display !== 'none') buildVsTab();
     if (document.getElementById('tab-divs').style.display !== 'none') buildDivTab();
     if (document.getElementById('tab-trades').style.display !== 'none') buildTradesTab();
+    if (document.getElementById('tab-history').style.display !== 'none') loadHistoryTab();
 
     const now = new Date();
     document.getElementById('stamp').textContent = 'Actualizado: '+now.toLocaleDateString('es-VE')+' '+now.toLocaleTimeString('es-VE',{hour:'2-digit',minute:'2-digit'});
@@ -202,11 +342,53 @@ function buildDivTab() {
 }
 
 function buildTradesTab() {
-  const trades = portfolioData.trades;
+  if (!portfolioData || !portfolioData.trades) return;
+  
+  const symbolSelect = document.getElementById('filter-symbol');
+  const currentSymbol = symbolSelect.value || 'all';
+  
+  const symbols = Array.from(new Set(portfolioData.trades.map(t => t.symbol))).sort();
+  
+  symbolSelect.innerHTML = '<option value="all">Todas</option>';
+  symbols.forEach(sym => {
+    const opt = document.createElement('option');
+    opt.value = sym;
+    opt.textContent = `${sym} - ${portfolioData.tickerNames?.[sym] || sym}`;
+    if (sym === currentSymbol) opt.selected = true;
+    symbolSelect.appendChild(opt);
+  });
+  
+  applyTradeFilters();
+}
+
+function applyTradeFilters() {
+  if (!portfolioData || !portfolioData.trades) return;
+
+  const typeFilter = document.getElementById('filter-type').value;
+  const symbolFilter = document.getElementById('filter-symbol').value;
+  const startDateFilter = document.getElementById('filter-start-date').value;
+  const endDateFilter = document.getElementById('filter-end-date').value;
+
+  const filtered = portfolioData.trades.filter(t => {
+    if (typeFilter !== 'all' && t.type !== typeFilter) return false;
+    if (symbolFilter !== 'all' && t.symbol !== symbolFilter) return false;
+    if (startDateFilter && t.date < startDateFilter) return false;
+    if (endDateFilter && t.date > endDateFilter) return false;
+    return true;
+  });
+
   const tb = document.getElementById('trades-tbody');
   tb.innerHTML = '';
-  
-  trades.forEach(t => {
+
+  const summary = document.getElementById('trade-summary-info');
+  summary.textContent = `Mostrando ${filtered.length} de ${portfolioData.trades.length} transacciones`;
+
+  if (filtered.length === 0) {
+    tb.innerHTML = '<tr class="loading-row"><td colspan="7">No se encontraron transacciones con los filtros seleccionados.</td></tr>';
+    return;
+  }
+
+  filtered.forEach(t => {
     const tr = document.createElement('tr');
     const typeColor = t.type === 'Buy' ? 'var(--green)' : 'var(--amber)';
     const typeLabel = t.type === 'Buy' ? 'Compra' : 'Venta';
@@ -216,7 +398,7 @@ function buildTradesTab() {
     tr.innerHTML = `
       <td>${t.date}</td>
       <td style="color:${typeColor}; font-weight:500;">${typeLabel}</td>
-      <td><div class="tk-n">${t.symbol}</div><div class="tk-f">${portfolioData.tickerNames[t.symbol] || t.symbol}</div></td>
+      <td><div class="tk-n">${t.symbol}</div><div class="tk-f">${portfolioData.tickerNames?.[t.symbol] || t.symbol}</div></td>
       <td class="r">${f(t.qty, 4)}</td>
       <td class="r">${fu(t.price)}</td>
       <td class="r" style="color:var(--red)">-$${f(Math.abs(t.commission))}</td>
@@ -224,6 +406,14 @@ function buildTradesTab() {
     `;
     tb.appendChild(tr);
   });
+}
+
+function resetTradeFilters() {
+  document.getElementById('filter-type').value = 'all';
+  document.getElementById('filter-symbol').value = 'all';
+  document.getElementById('filter-start-date').value = '';
+  document.getElementById('filter-end-date').value = '';
+  applyTradeFilters();
 }
 
 async function uploadCSV(input) {
@@ -240,9 +430,10 @@ async function uploadCSV(input) {
   try {
     const res = await fetch('/api/upload', {
       method: 'POST',
-      body: formData
+      body: formData,
+      credentials: 'same-origin'
     });
-    const data = await res.json();
+    const data = await parseJsonResponse(res);
     if (!res.ok) throw new Error(data.error || 'Error al subir');
     
     // Recargar datos tras subir
