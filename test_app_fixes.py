@@ -1,9 +1,12 @@
 import importlib.util
+import os
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+
+os.environ.setdefault("IB_TRACKER_PASSWORD", "test-password")
 
 spec = importlib.util.spec_from_file_location("app", ROOT / "app.py")
 assert spec is not None
@@ -52,3 +55,31 @@ def test_fetch_prices_handles_dataframe_close_data():
     module.yf.download = DummyYFinance.download
     result = module.fetch_prices(["VOO"])
     assert result["VOO"] == 101.0
+
+
+def test_data_and_source_not_served_without_login():
+    client = module.app.test_client()
+    for path in [
+        "/data/price_cache.json",
+        "/data/U13493500.test.csv",
+        "/app.py",
+        "/.env",
+        "/GEMINI.md",
+        "/api/portfolio",
+        "/precios",
+    ]:
+        assert client.get(path).status_code in (401, 404), path
+
+
+def test_frontend_files_still_served():
+    client = module.app.test_client()
+    for path in ["/", "/dashboard.js", "/login_helper.js", "/favicon.svg"]:
+        assert client.get(path).status_code == 200, path
+
+
+def test_login_uses_env_password():
+    client = module.app.test_client()
+    bad = client.post("/api/login", json={"password": "1234"})
+    assert bad.status_code == 401
+    ok = client.post("/api/login", json={"password": os.environ["IB_TRACKER_PASSWORD"]})
+    assert ok.status_code == 200

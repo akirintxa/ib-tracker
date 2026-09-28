@@ -1,14 +1,16 @@
 import csv
 import glob
+import hmac
 import json
 import os
+import secrets
 from calendar import monthrange
 from collections import defaultdict
 from datetime import datetime
 from functools import wraps
 
 import yfinance as yf
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, abort, jsonify, request, send_from_directory, session
 from flask_cors import CORS
 
 # Configuración de entorno para el Proxy de PythonAnywhere
@@ -16,11 +18,23 @@ os.environ["HTTP_PROXY"] = "http://proxy.server:3128"
 os.environ["HTTPS_PROXY"] = "http://proxy.server:3128"
 
 basedir = "/home/akirintxa/ib-tracker"
-app = Flask(__name__, static_folder=basedir, static_url_path="")
-app.secret_key = "tu_llave_secreta_aqui"
+# Sin carpeta estática automática: solo se sirven los archivos del frontend
+# listados en FRONTEND_FILES, nunca data/ ni el código fuente.
+app = Flask(__name__, static_folder=None)
+# Si no se define IB_TRACKER_SECRET_KEY, se genera una al azar (las sesiones
+# se pierden al recargar la app).
+app.secret_key = os.environ.get("IB_TRACKER_SECRET_KEY") or secrets.token_hex(32)
 CORS(app)
 
-PASSWORD = "akira"
+# La contraseña se lee de la variable de entorno (en PythonAnywhere, definirla
+# en el archivo WSGI antes de importar la app).
+PASSWORD = os.environ.get("IB_TRACKER_PASSWORD")
+if not PASSWORD:
+    raise RuntimeError(
+        "Define la variable de entorno IB_TRACKER_PASSWORD (ver .env.example)"
+    )
+
+FRONTEND_FILES = {"dashboard.js", "login_helper.js", "favicon.svg"}
 
 TICKER_NAMES = {
     "VOO": "Vanguard S&P 500",
@@ -51,7 +65,10 @@ def login_required(f):
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True)
-    if data and data.get("password") == PASSWORD:
+    password = data.get("password") if isinstance(data, dict) else None
+    if isinstance(password, str) and hmac.compare_digest(
+        password.encode(), PASSWORD.encode()
+    ):
         session["logged_in"] = True
         return jsonify({"success": True})
     return jsonify({"success": False}), 401
@@ -60,6 +77,13 @@ def login():
 @app.route("/")
 def index():
     return send_from_directory(basedir, "portafolio-dashboard.html")
+
+
+@app.route("/<path:filename>")
+def frontend_file(filename):
+    if filename not in FRONTEND_FILES:
+        abort(404)
+    return send_from_directory(basedir, filename)
 
 
 DATA_DIR = os.path.join(basedir, "data")
