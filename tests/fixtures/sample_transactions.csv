@@ -1,0 +1,19 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,Title,Transaction History
+Statement,Data,Period,"January 1, 2024 - June 30, 2024"
+Transaction History,Header,Date,Account,Description,Transaction Type,Symbol,Quantity,Price,Price Currency,Gross Amount ,Commission,Net Amount
+Transaction History,Data,2024-01-05,U0000000,Electronic Fund Transfer,Deposit,-,-,-,USD,3000,-,3000
+Transaction History,Data,2024-01-10,U0000000,Vanguard S&P 500 ETF,Buy,VOO,10,100,USD,-1000,-1,-1001
+Transaction History,Data,2024-01-20,U0000000,Rigetti Computing Inc,Buy,RGTI,100,1.5,USD,-150,-1,-151
+Transaction History,Data,2024-02-05,U0000000,Microsoft Corp,Buy,MSFT,2,400,USD,-800,-0.5,-800.5
+Transaction History,Data,2024-02-15,U0000000,Vanguard S&P 500 ETF,Buy,VOO,5,110,USD,-550,-1,-551
+Transaction History,Data,2024-03-05,U0000000,Rigetti Computing Inc,Sell,RGTI,-100,2,USD,200,-1,199
+Transaction History,Data,2024-03-14,U0000000,MSFT Cash Dividend USD 0.75 per Share,Dividend,MSFT,-,-,USD,1.5,-,1.5
+Transaction History,Data,2024-03-14,U0000000,MSFT Cash Dividend - US Tax,Foreign Tax Withholding,MSFT,-,-,USD,-0.23,-,-0.23
+Transaction History,Data,2024-03-20,U0000000,Vanguard S&P 500 ETF,Sell,VOO,-3,120,USD,360,-1,359
+Transaction History,Data,2024-03-28,U0000000,VOO Cash Dividend USD 1.50 per Share,Dividend,VOO,-,-,USD,15,-,15
+Transaction History,Data,2024-03-28,U0000000,VOO Cash Dividend - US Tax,Foreign Tax Withholding,VOO,-,-,USD,-2.25,-,-2.25
+Transaction History,Data,2024-06-28,U0000000,VOO Cash Dividend USD 1.33 per Share,Dividend,VOO,-,-,USD,16,-,16
+Transaction History,Data,2024-06-28,U0000000,VOO Cash Dividend - US Tax,Foreign Tax Withholding,VOO,-,-,USD,-2.4,-,-2.4
+Transaction History,Data,2024-06-30,U0000000,Fila con precio vacio,Buy,QQQ,1,,USD,-400,-1,-401
+Transaction History,Total,,,,,,,,,,,

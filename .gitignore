@@ -21,3 +21,6 @@ Thumbs.db
 # IDEs
 .vscode/
 .idea/
+
+# CSV de ejemplo anonimizado para las pruebas
+!tests/fixtures/*.csv
