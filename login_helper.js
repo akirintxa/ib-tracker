@@ -29,6 +29,15 @@ async function attemptLogin() {
   }
 }
 
+async function logout() {
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'same-origin' });
+  } finally {
+    // Recargar descarta los datos del portafolio que quedan en memoria
+    location.reload();
+  }
+}
+
 // Permitir Login con la tecla Enter
 document.getElementById('login-password')?.addEventListener('keypress', (e) => {
   if (e.key === 'Enter') attemptLogin();

@@ -10,8 +10,12 @@ Más detalle de la arquitectura en [GEMINI.md](GEMINI.md).
 
 ```bash
 pip install -r requirements.txt
-python app.py          # abre http://localhost:8080
+cp .env.example .env   # define al menos IB_TRACKER_PASSWORD
+./iniciar-tracker.command   # carga .env y abre http://localhost:8080
 ```
+
+Si prefieres `python app.py`, exporta antes `IB_TRACKER_PASSWORD` en tu terminal
+(`app.py` no lee `.env` por sí solo).
 
 Coloca los reportes de IB en `data/` con el patrón `U13493500*.csv`
 (la carpeta está en `.gitignore`), o súbelos desde el botón "Subir CSV".
@@ -41,6 +45,8 @@ La suite vive en `tests/` y no necesita red ni tus datos reales:
 | `test_history.py` | Histórico mensual de aportes, posiciones y rentabilidad |
 | `test_prices.py` | Manejo de respuestas de yfinance (Series y DataFrame) |
 | `test_api.py` | Endpoint `/api/portfolio` con login |
+| `test_security.py` | Contraseña por entorno, logout, expiración y archivos expuestos |
 
-Las pruebas cubren `app.py`. `app-web.py` duplica parte de esa lógica y hoy no
-tiene pruebas propias.
+Las pruebas cargan `app.py` con un entorno controlado (contraseña de prueba),
+así que no importa qué tengas definido en tu `.env`. `app-web.py` duplica
+parte de esa lógica y hoy no tiene pruebas propias.

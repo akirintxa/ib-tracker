@@ -20,6 +20,13 @@ cleanup() {
 # Capturar señales de salida para cerrar el proceso de Python
 trap cleanup SIGINT SIGTERM EXIT
 
+# Cargar variables de entorno (IB_TRACKER_PASSWORD, IB_TRACKER_SECRET_KEY)
+if [ -f .env ]; then
+    set -a
+    . ./.env
+    set +a
+fi
+
 echo ">>> 1. Iniciando servidor backend..."
 ./venv/bin/python app.py &
 PYTHON_PID=$!
