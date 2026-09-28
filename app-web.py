@@ -6,7 +6,7 @@ import os
 import secrets
 from calendar import monthrange
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import yfinance as yf
@@ -33,6 +33,10 @@ if not PASSWORD:
     raise RuntimeError(
         "Define la variable de entorno IB_TRACKER_PASSWORD (ver .env.example)"
     )
+
+# Minutos de inactividad antes de que expire la sesión
+SESSION_MINUTES = int(os.environ.get("IB_TRACKER_SESSION_MINUTES", "30"))
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=SESSION_MINUTES)
 
 FRONTEND_FILES = {"dashboard.js", "login_helper.js", "favicon.svg"}
 
@@ -69,9 +73,16 @@ def login():
     if isinstance(password, str) and hmac.compare_digest(
         password.encode(), PASSWORD.encode()
     ):
+        session.permanent = True
         session["logged_in"] = True
         return jsonify({"success": True})
     return jsonify({"success": False}), 401
+
+
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"success": True})
 
 
 @app.route("/")

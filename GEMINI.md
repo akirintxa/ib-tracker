@@ -36,6 +36,7 @@ pip install -r requirements.txt
 La contraseña y la llave de sesión se leen de variables de entorno, no del código:
 - `IB_TRACKER_PASSWORD` (obligatoria): contraseña del dashboard.
 - `IB_TRACKER_SECRET_KEY` (recomendada): llave para firmar la cookie de sesión; si falta, se genera una al azar en cada arranque.
+- `IB_TRACKER_SESSION_MINUTES` (opcional, 30 por defecto): minutos de inactividad antes de que la sesión expire. El botón "Salir" cierra la sesión al instante.
 
 Localmente, copia `.env.example` a `.env` y complétalo; `iniciar-tracker.command` lo carga solo. En PythonAnywhere, defínelas con `os.environ[...]` en el archivo WSGI antes de importar la app.
 

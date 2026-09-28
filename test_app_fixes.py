@@ -83,3 +83,13 @@ def test_login_uses_env_password():
     assert bad.status_code == 401
     ok = client.post("/api/login", json={"password": os.environ["IB_TRACKER_PASSWORD"]})
     assert ok.status_code == 200
+
+
+def test_logout_and_session_expiry():
+    client = module.app.test_client()
+    client.post("/api/login", json={"password": os.environ["IB_TRACKER_PASSWORD"]})
+    with client.session_transaction() as sess:
+        assert sess.permanent
+    assert module.app.permanent_session_lifetime.total_seconds() == module.SESSION_MINUTES * 60
+    client.post("/api/logout")
+    assert client.get("/precios").status_code == 401
