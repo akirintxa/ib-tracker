@@ -20,7 +20,7 @@ La aplicación parsea dinámicamente archivos CSV de transacciones de IB, calcul
 - `data/`: Directorio donde se almacenan todos los archivos CSV de transacciones (`U13493500*.csv`).
 - `portafolio-dashboard.html`: UI del dashboard (SPA) con pestañas para Posiciones, Comparativa vs S&P 500, Dividendos y Transacciones.
 - `dashboard.js`: Lógica del frontend (fetch de datos, renderizado de gráficos y gestión de subida de archivos).
-- `test_parsing.py`: Script de utilidad para probar la lógica de parsing de forma aislada.
+- `tests/`: Suite pytest con un CSV de ejemplo anonimizado (ver README.md).
 - `requirements.txt`: Dependencias de Python.
 
 ---
