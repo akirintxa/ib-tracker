@@ -1,15 +1,17 @@
 import csv
 import glob
+import hmac
 import json
 import os
+import secrets
 from calendar import monthrange
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 
 import pandas as pd
 import yfinance as yf
-from flask import Flask, jsonify, request, send_from_directory, session
+from flask import Flask, abort, jsonify, request, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
@@ -21,17 +23,31 @@ DATA_DIR = os.path.join(basedir, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 PRICE_CACHE_PATH = os.path.join(DATA_DIR, "price_cache.json")
 
-app = Flask(__name__, static_folder=basedir, static_url_path="")
+# Sin carpeta estática automática: solo se sirven los archivos del frontend
+# listados en FRONTEND_FILES, nunca data/ ni el código fuente.
+app = Flask(__name__, static_folder=None)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
 CORS(app)
-app.secret_key = "ib-tracker-secret-key-change-me"  # Cambia esto por algo seguro
+# Si no se define IB_TRACKER_SECRET_KEY, se genera una al azar (las sesiones
+# se pierden al reiniciar el servidor).
+app.secret_key = os.environ.get("IB_TRACKER_SECRET_KEY") or secrets.token_hex(32)
 app.config.update(
     SESSION_COOKIE_SAMESITE="Lax",
     MAX_CONTENT_LENGTH=50 * 1024 * 1024,  # 50 MB — reportes IB pueden ser grandes
 )
 
-# Configuración de seguridad
-PASSCODE = "1234"  # <--- CAMBIA TU CONTRASEÑA AQUÍ
+# Configuración de seguridad: la contraseña se lee de la variable de entorno
+PASSCODE = os.environ.get("IB_TRACKER_PASSWORD")
+if not PASSCODE:
+    raise RuntimeError(
+        "Define la variable de entorno IB_TRACKER_PASSWORD (ver .env.example)"
+    )
+
+# Minutos de inactividad antes de que expire la sesión
+SESSION_MINUTES = int(os.environ.get("IB_TRACKER_SESSION_MINUTES", "30"))
+app.config["PERMANENT_SESSION_LIFETIME"] = timedelta(minutes=SESSION_MINUTES)
+
+FRONTEND_FILES = {"dashboard.js", "login_helper.js", "favicon.svg"}
 
 
 def login_required(f):
@@ -644,16 +660,33 @@ def fetch_prices(tickers):
 
 @app.route("/api/login", methods=["POST"])
 def login():
-    data = request.get_json()
-    if data and data.get("password") == PASSCODE:
+    data = request.get_json(silent=True)
+    password = data.get("password") if isinstance(data, dict) else None
+    if isinstance(password, str) and hmac.compare_digest(
+        password.encode(), PASSCODE.encode()
+    ):
+        session.permanent = True
         session["logged_in"] = True
         return jsonify({"success": True})
     return jsonify({"error": "Contraseña incorrecta"}), 401
 
 
+@app.route("/api/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return jsonify({"success": True})
+
+
 @app.route("/")
 def index():
     return send_from_directory(basedir, "portafolio-dashboard.html")
+
+
+@app.route("/<path:filename>")
+def frontend_file(filename):
+    if filename not in FRONTEND_FILES:
+        abort(404)
+    return send_from_directory(basedir, filename)
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -745,6 +778,7 @@ def portfolio():
 
 
 @app.route("/precios")
+@login_required
 def precios():
     try:
         trades, _ = parse_csv()
