@@ -15,8 +15,39 @@ from flask import Flask, abort, jsonify, request, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
 
-# Forzar la ruta al directorio donde está el script
-basedir = os.path.abspath(os.path.dirname(__file__))
+# ---------------------------------------------------------------------------
+# Configuración por entorno
+#
+# Un solo servidor para los dos despliegues:
+#   - "local": python app.py (o iniciar-tracker.command con túnel Serveo).
+#   - "web":   PythonAnywhere vía WSGI (app-web.py fija este modo).
+# El modo se toma de IB_TRACKER_MODE; si no está definido, se detecta
+# PythonAnywhere por la variable PYTHONANYWHERE_DOMAIN que define la plataforma.
+# ---------------------------------------------------------------------------
+MODE = os.environ.get(
+    "IB_TRACKER_MODE", "web" if os.environ.get("PYTHONANYWHERE_DOMAIN") else "local"
+).lower()
+IS_WEB = MODE == "web"
+
+# Proxy saliente (PythonAnywhere exige proxy.server para llegar a Yahoo Finance)
+OUTBOUND_PROXY = os.environ.get(
+    "IB_TRACKER_PROXY", "http://proxy.server:3128" if IS_WEB else ""
+)
+if OUTBOUND_PROXY:
+    os.environ["HTTP_PROXY"] = OUTBOUND_PROXY
+    os.environ["HTTPS_PROXY"] = OUTBOUND_PROXY
+
+# Si Yahoo no devuelve precio, mostrar la posición a costo promedio en vez de ocultarla
+PRICE_FALLBACK_TO_COST = os.environ.get(
+    "IB_TRACKER_PRICE_FALLBACK", "1" if IS_WEB else "0"
+) in ("1", "true", "yes")
+
+LOCAL_PORT = int(os.environ.get("IB_TRACKER_PORT", "8080"))
+
+# Directorio del proyecto (por defecto, donde está este script)
+basedir = os.path.abspath(
+    os.environ.get("IB_TRACKER_BASEDIR") or os.path.dirname(__file__)
+)
 
 # Crear subcarpeta data si no existe
 DATA_DIR = os.path.join(basedir, "data")
@@ -129,7 +160,7 @@ def parse_csv():
                 if row_tuple in seen_rows:
                     continue
 
-                if len(row) < 3 or row[0] != "Transaction History":
+                if len(row) < 13 or row[0] != "Transaction History":
                     continue
                 if row[1] != "Data":
                     continue
@@ -627,7 +658,7 @@ def fetch_prices(tickers):
                 if isinstance(close_data, pd.DataFrame):
                     if ticker in close_data.columns:
                         series = close_data[ticker]
-                    elif len(close_data.columns) > 0:
+                    elif len(tickers) == 1 and len(close_data.columns) > 0:
                         first_column = close_data.columns[0]
                         series = close_data[first_column]
                     else:
@@ -747,6 +778,9 @@ def portfolio():
     # Obtener precios actuales
     tickers = [h["ticker"] for h in holdings]
     prices = fetch_prices(tickers)
+    if PRICE_FALLBACK_TO_COST:
+        for h in holdings:
+            prices.setdefault(h["ticker"], h["avgPrice"])
 
     # Encontrar la fecha de la primera compra general (para el footer)
     all_buy_dates = [t["date"] for t in trades if t["type"] == "Buy"]
@@ -802,24 +836,32 @@ def precios():
 
 
 if __name__ == "__main__":
-    # Verificar que existen CSVs al arrancar
-    try:
-        csv_files = find_csv_files()
-        print(f"\n✓ Se encontraron {len(csv_files)} archivo(s) CSV de transacciones.")
-        for f in csv_files:
-            print(f"  - {os.path.basename(f)}")
-    except FileNotFoundError as e:
-        print(f"\n⚠ {e}")
+    if IS_WEB:
+        # En PythonAnywhere el servidor lo levanta el WSGI; esto es solo para pruebas.
+        app.run()
+    else:
+        # Verificar que existen CSVs al arrancar
+        try:
+            csv_files = find_csv_files()
+            print(
+                f"\n✓ Se encontraron {len(csv_files)} archivo(s) CSV de transacciones."
+            )
+            for f in csv_files:
+                print(f"  - {os.path.basename(f)}")
+        except FileNotFoundError as e:
+            print(f"\n⚠ {e}")
 
-    print("\n✓ Servidor iniciado. Accesible localmente en http://localhost:8080")
-    print(
-        "✓ Para otros dispositivos en tu Wi-Fi, usa tu dirección IP (ej: http://192.168.1.X:8080)\n"
-    )
+        local_url = f"http://localhost:{LOCAL_PORT}"
+        print(f"\n✓ Servidor iniciado. Accesible localmente en {local_url}")
+        print(
+            "✓ Para otros dispositivos en tu Wi-Fi, usa tu dirección IP "
+            f"(ej: http://192.168.1.X:{LOCAL_PORT})\n"
+        )
 
-    import threading
-    import webbrowser
+        import threading
+        import webbrowser
 
-    # Abrir el navegador automáticamente con un ligero retraso para asegurar que el servidor esté listo
-    threading.Timer(1.0, lambda: webbrowser.open("http://localhost:8080")).start()
+        # Abrir el navegador automáticamente con un ligero retraso para asegurar que el servidor esté listo
+        threading.Timer(1.0, lambda: webbrowser.open(local_url)).start()
 
-    app.run(host="0.0.0.0", port=8080, debug=False)
+        app.run(host="0.0.0.0", port=LOCAL_PORT, debug=False)
