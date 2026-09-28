@@ -1,4 +1,5 @@
 import importlib.util
+import os
 import shutil
 from pathlib import Path
 
@@ -8,18 +9,51 @@ ROOT = Path(__file__).resolve().parent.parent
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 SAMPLE_CSV = FIXTURES / "sample_transactions.csv"
 
+TEST_PASSWORD = "test-password"
 
-def _load_app_module():
-    spec = importlib.util.spec_from_file_location("ib_tracker_app", ROOT / "app.py")
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
+# Variables que app.py lee al importarse; se limpian para que el entorno de
+# quien corre las pruebas no cambie el resultado.
+APP_ENV_VARS = [
+    "IB_TRACKER_MODE",
+    "IB_TRACKER_PROXY",
+    "IB_TRACKER_PRICE_FALLBACK",
+    "IB_TRACKER_PORT",
+    "IB_TRACKER_BASEDIR",
+    "IB_TRACKER_SECRET_KEY",
+    "IB_TRACKER_PASSWORD",
+    "IB_TRACKER_SESSION_MINUTES",
+    "PYTHONANYWHERE_DOMAIN",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+]
+
+
+def load_app_module(**env):
+    """Carga app.py con un entorno controlado y restaura os.environ al terminar."""
+    saved = {k: os.environ.get(k) for k in APP_ENV_VARS}
+    try:
+        for k in APP_ENV_VARS:
+            os.environ.pop(k, None)
+        os.environ["IB_TRACKER_PASSWORD"] = TEST_PASSWORD
+        os.environ.update(env)
+        spec = importlib.util.spec_from_file_location(
+            "ib_tracker_app", ROOT / "app.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 @pytest.fixture(scope="session")
 def app_module():
-    """Módulo app.py cargado una sola vez para toda la sesión."""
-    return _load_app_module()
+    """Módulo app.py en modo local, cargado una sola vez para toda la sesión."""
+    return load_app_module(IB_TRACKER_MODE="local")
 
 
 @pytest.fixture(autouse=True)
