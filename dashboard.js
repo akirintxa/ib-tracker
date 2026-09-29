@@ -1,6 +1,7 @@
 const COLORS = ['#2c5f8a','#3a7d44','#c4622d','#b5456b','#6b4bbf','#1a7a62','#c47d0e','#3a6aa8','#5a8a32','#a83228','#4a3a8a'];
 const TAB_IDS = ['holdings','vs','divs','trades','history'];
 let charts = {}, portfolioData = null, historyData = null, historyRange = 'all', historyLoading = false;
+let etfHoldings = null, etfHoldingsLoading = false;
 
 const f = (n,d=2) => n.toLocaleString('es-VE',{minimumFractionDigits:d,maximumFractionDigits:d});
 const fu = n => '$'+f(Math.abs(n));
@@ -172,6 +173,7 @@ async function loadPortfolio() {
 
     portfolioData = data;
     historyData = null;
+    etfHoldings = null;
     const prices = data.prices;
     const rows = data.holdings.map(h => ({...h, price: prices[h.ticker] ?? null})).filter(h => h.price);
     if (!rows.length) throw new Error('No se recibieron precios.');
@@ -276,17 +278,56 @@ function buildVsTab() {
               y:{ticks:{color:'#a09d97',font:{size:11},callback:v=>v+'%'},grid:{color:'rgba(0,0,0,0.05)'}}}}
   });
 
-  const leg=document.getElementById('alloc-leg'); leg.innerHTML='';
-  rows.forEach((r,i)=>{const d=document.createElement('div');d.className='leg-i';d.innerHTML=`<span class="leg-d" style="background:${COLORS[i%COLORS.length]}"></span>${r.ticker}`;leg.appendChild(d);});
   const vals=rows.map(r=>parseFloat((r.qty*r.price).toFixed(2)));
+  const totalAlloc=vals.reduce((a,b)=>a+b,0);
+  const pctOf=v=>totalAlloc>0?v/totalAlloc*100:0;
+  const leg=document.getElementById('alloc-leg'); leg.innerHTML='';
+  rows.forEach((r,i)=>{const d=document.createElement('div');d.className='leg-i';d.innerHTML=`<span class="leg-d" style="background:${COLORS[i%COLORS.length]}"></span>${r.ticker} <span class="leg-p">${f(pctOf(vals[i]),1)}%</span>`;leg.appendChild(d);});
   if(charts.alloc) charts.alloc.destroy();
   charts.alloc=new Chart(document.getElementById('allocChart'),{
     type:'doughnut',
     data:{labels:tickers,datasets:[{data:vals,backgroundColor:COLORS.slice(0,rows.length),borderWidth:3,borderColor:'#f7f6f2'}]},
     options:{responsive:true,maintainAspectRatio:false,
-      plugins:{legend:{display:false},tooltip:{callbacks:{label:ctx=>` ${ctx.label}: ${fu(ctx.raw)}`}}},
+      plugins:{legend:{display:false},tooltip:{bodyFont:{size:11},callbacks:{
+        label:ctx=>` ${ctx.label}: ${fu(ctx.raw)} (${f(pctOf(ctx.raw))}%)`,
+        afterBody:items=>etfTooltipLines(items[0]&&items[0].label)
+      }}},
       cutout:'62%'}
   });
+  updateAllocNote();
+  loadEtfHoldings();
+}
+
+// Composición de los ETF (top 10 según Yahoo Finance). Se carga aparte y, si
+// no hay datos, el gráfico simplemente no muestra el detalle.
+async function loadEtfHoldings() {
+  if (etfHoldings || etfHoldingsLoading) return;
+  etfHoldingsLoading = true;
+  try {
+    const res = await fetch('/api/etf-holdings', { credentials: 'same-origin' });
+    const data = await parseJsonResponse(res);
+    etfHoldings = res.ok && data.holdings ? data.holdings : {};
+  } catch(e) {
+    etfHoldings = {};
+  }
+  etfHoldingsLoading = false;
+  updateAllocNote();
+}
+
+function etfTooltipLines(ticker) {
+  const h = etfHoldings && etfHoldings[ticker];
+  if (!h || !h.length) return [];
+  const short = s => s.length > 24 ? s.slice(0, 23) + '…' : s;
+  return ['', `Principales posiciones de ${ticker}:`,
+    ...h.map(x => `${x.symbol} · ${short(x.name)}  ${f(x.weight)}%`)];
+}
+
+function updateAllocNote() {
+  const el = document.getElementById('alloc-note');
+  if (!el || !portfolioData) return;
+  const withData = etfHoldings ? portfolioData.rows.filter(r => (etfHoldings[r.ticker] || []).length) : [];
+  el.style.display = withData.length ? '' : 'none';
+  el.textContent = 'Pasa el cursor (o toca) sobre un ETF para ver sus principales acciones: ' + withData.map(r => r.ticker).join(', ') + '.';
 }
 
 function buildDivTab() {

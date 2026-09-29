@@ -11,6 +11,7 @@ from functools import wraps
 
 import pandas as pd
 import yfinance as yf
+from yfinance.exceptions import YFDataException
 from flask import Flask, abort, jsonify, request, send_from_directory, session
 from flask_cors import CORS
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -53,6 +54,10 @@ basedir = os.path.abspath(
 DATA_DIR = os.path.join(basedir, "data")
 os.makedirs(DATA_DIR, exist_ok=True)
 PRICE_CACHE_PATH = os.path.join(DATA_DIR, "price_cache.json")
+ETF_HOLDINGS_CACHE_PATH = os.path.join(DATA_DIR, "etf_holdings_cache.json")
+# La composición de un ETF cambia poco: se consulta a Yahoo como máximo una vez por semana
+ETF_HOLDINGS_TTL = timedelta(days=7)
+ETF_TOP_N = 10
 
 # Sin carpeta estática automática: solo se sirven los archivos del frontend
 # listados en FRONTEND_FILES, nunca data/ ni el código fuente.
@@ -689,6 +694,92 @@ def fetch_prices(tickers):
     return resultados
 
 
+def load_etf_holdings_cache():
+    if os.path.exists(ETF_HOLDINGS_CACHE_PATH):
+        try:
+            with open(ETF_HOLDINGS_CACHE_PATH, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    return {}
+
+
+def save_etf_holdings_cache(cache):
+    with open(ETF_HOLDINGS_CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(cache, f)
+
+
+def fetch_fund_top_holdings(ticker):
+    """Principales posiciones de un ETF según Yahoo Finance.
+
+    Devuelve una lista (vacía si el ticker no es un fondo o no trae
+    composición) o None si la consulta falló y conviene reintentar luego.
+    """
+    try:
+        df = yf.Ticker(ticker).funds_data.top_holdings
+    except (KeyError, YFDataException):
+        return []  # acción individual u otro instrumento sin datos de fondo
+    except Exception as e:
+        print(f"No se pudo obtener la composición de {ticker}: {e}")
+        return None
+    if df is None or len(df) == 0:
+        return []
+    holdings = []
+    for symbol, row in df.head(ETF_TOP_N).iterrows():
+        try:
+            weight = float(row["Holding Percent"]) * 100
+        except (KeyError, TypeError, ValueError):
+            continue
+        holdings.append(
+            {
+                "symbol": str(symbol),
+                "name": str(row.get("Name") or symbol),
+                "weight": round(weight, 2),
+            }
+        )
+    return holdings
+
+
+def get_etf_holdings(tickers, now=None):
+    """Composición (top N) por ticker, usando el caché en disco si está vigente.
+
+    Solo incluye en el resultado los tickers que son fondos con datos.
+    """
+    now = now or datetime.now()
+    cache = load_etf_holdings_cache()
+    changed = False
+    result = {}
+    for ticker in tickers:
+        entry = cache.get(ticker)
+        fresh = False
+        if entry:
+            try:
+                fresh = now - datetime.fromisoformat(entry["fetchedAt"]) < ETF_HOLDINGS_TTL
+            except (KeyError, TypeError, ValueError):
+                fresh = False
+        if not fresh:
+            holdings = fetch_fund_top_holdings(ticker)
+            if holdings is None:
+                # Falla temporal: se usa lo que haya en caché aunque esté vencido
+                holdings = (entry or {}).get("holdings", [])
+            else:
+                cache[ticker] = {
+                    "fetchedAt": now.isoformat(timespec="seconds"),
+                    "holdings": holdings,
+                }
+                changed = True
+        else:
+            holdings = entry.get("holdings", [])
+        if holdings:
+            result[ticker] = holdings
+    if changed:
+        try:
+            save_etf_holdings_cache(cache)
+        except OSError as e:
+            print(f"No se pudo guardar el caché de composición de ETF: {e}")
+    return result
+
+
 @app.route("/api/login", methods=["POST"])
 def login():
     data = request.get_json(silent=True)
@@ -809,6 +900,19 @@ def portfolio():
             "cashflowHistory": cashflow_history,
         }
     )
+
+
+@app.route("/api/etf-holdings")
+@login_required
+def etf_holdings():
+    """Composición de los ETF del portafolio (se carga aparte para no frenar /api/portfolio)."""
+    try:
+        trades, _ = parse_csv()
+    except FileNotFoundError as e:
+        return jsonify({"error": str(e)}), 404
+    # Solo se consultan tickers del propio portafolio, nunca los que mande el cliente
+    tickers = [h["ticker"] for h in compute_holdings(trades)]
+    return jsonify({"holdings": get_etf_holdings(tickers), "topN": ETF_TOP_N})
 
 
 @app.route("/precios")
