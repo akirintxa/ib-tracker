@@ -75,6 +75,11 @@ def data_dir(app_module, monkeypatch, tmp_path):
     monkeypatch.setattr(
         app_module, "PRICE_CACHE_PATH", str(tmp_path / "price_cache.json")
     )
+    monkeypatch.setattr(
+        app_module,
+        "ETF_HOLDINGS_CACHE_PATH",
+        str(tmp_path / "etf_holdings_cache.json"),
+    )
     return tmp_path
 
 

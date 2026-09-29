@@ -74,6 +74,8 @@
   .leg { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
   .leg-i { display: flex; align-items: center; gap: 4px; font-size: 0.74rem; color: var(--text2); }
   .leg-d { width: 9px; height: 9px; border-radius: 2px; flex-shrink: 0; }
+  .leg-p { color: var(--text3); font-family: 'DM Mono', monospace; font-size: 0.7rem; }
+  .alloc-note { font-size: 0.7rem; color: var(--text3); margin-top: 8px; }
 
   .div-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(115px, 1fr)); gap: 8px; margin-bottom: 1.5rem; }
   .div-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 11px 13px; }
@@ -208,7 +210,8 @@
     <div class="cw" style="height:220px;"><canvas id="vsChart"></canvas></div>
     <div class="sec">Distribución del portafolio</div>
     <div class="leg" id="alloc-leg"></div>
-    <div class="cw" style="height:220px;"><canvas id="allocChart"></canvas></div>
+    <div class="cw" style="height:260px;"><canvas id="allocChart"></canvas></div>
+    <div class="alloc-note" id="alloc-note" style="display:none;"></div>
   </div>
 
   <!-- Dividendos -->
